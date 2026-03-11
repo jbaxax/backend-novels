@@ -9,6 +9,8 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { NovelsModule } from './novels/novels.module';
 import { VolumesModule } from './volumes/volumes.module';
+import { ChaptersModule } from './chapters/chapters.module';
+import { CharactersModule } from './characters/characters.module';
 
 @Module({
   imports: [
@@ -64,6 +66,10 @@ import { VolumesModule } from './volumes/volumes.module';
     NovelsModule,
 
     VolumesModule,
+
+    ChaptersModule,
+
+    CharactersModule,
   ],
   controllers: [AppController],
   providers: [AppService],
