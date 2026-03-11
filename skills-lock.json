@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "skills": {
+    "brainstorming": {
+      "source": "obra/superpowers",
+      "sourceType": "github",
+      "computedHash": "8e99026256fdd857520640b72e0181221ae02bcba16bdb9d644191c1b1b3b9e4"
+    },
+    "clean-code": {
+      "source": "davila7/claude-code-templates",
+      "sourceType": "github",
+      "computedHash": "89a0d403e495dc3e94ab2b2fa55f54a51b5971f994900c27fc88006f1b83e3c0"
+    },
+    "find-skills": {
+      "source": "vercel-labs/skills",
+      "sourceType": "github",
+      "computedHash": "25872a21881a950edc3db1f3329664d60405d539660ce05b3265db2de06a7dfd"
+    },
+    "vercel-react-best-practices": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "computedHash": "3ff06f0712886f7c2660d6746856c22d3127bd6568ddde29ddad8b72dbaaa226"
+    }
+  }
+}
