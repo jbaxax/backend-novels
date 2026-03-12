@@ -1,15 +1,18 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { CreateChapterDto } from './dto/create-chapter.dto';
 import { UpdateChapterDto } from './dto/update-chapter.dto';
 import { Chapter } from './entities/chapter.entity';
+import { Character } from '../characters/entities/character.entity';
 
 @Injectable()
 export class ChaptersService {
   constructor(
     @InjectRepository(Chapter)
     private readonly chapterRepository: Repository<Chapter>,
+    @InjectRepository(Character)
+    private readonly characterRepository: Repository<Character>,
   ) {}
 
   async create(createChapterDto: CreateChapterDto): Promise<Chapter> {
@@ -61,5 +64,30 @@ export class ChaptersService {
   async remove(id: string): Promise<void> {
     const chapter = await this.findOne(id);
     await this.chapterRepository.remove(chapter);
+  }
+
+  // [MENTOR]: Este método gestiona la relación many-to-many entre capítulo y personajes.
+  // Recibe un array de characterIds, busca esas entidades en la BD y las asigna
+  // al campo chapter.characters. TypeORM se encarga de insertar/borrar filas
+  // en la tabla pivote chapter_characters automáticamente al hacer save().
+  //
+  // Usamos In() de TypeORM para traer múltiples personajes en una sola query
+  // en vez de hacer N queries en un loop — mucho más eficiente.
+  async setCharacters(id: string, characterIds: string[]): Promise<Chapter> {
+    const chapter = await this.chapterRepository.findOne({
+      where: { id },
+      relations: { characters: true },
+    });
+
+    if (!chapter) {
+      throw new NotFoundException(`Chapter with id ${id} not found`);
+    }
+
+    const characters = await this.characterRepository.findBy({
+      id: In(characterIds),
+    });
+
+    chapter.characters = characters;
+    return this.chapterRepository.save(chapter);
   }
 }

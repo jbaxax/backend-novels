@@ -6,9 +6,11 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseArrayPipe,
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
 } from '@nestjs/common';
 import { ChaptersService } from './chapters.service';
 import { CreateChapterDto } from './dto/create-chapter.dto';
@@ -50,5 +52,16 @@ export class ChaptersController {
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.chaptersService.remove(id);
+  }
+
+  // [MENTOR]: PUT (no POST) porque estamos reemplazando la lista completa de personajes.
+  // POST agregaría uno. PUT dice: "esta ES la lista de personajes de este capítulo ahora".
+  // Si mandas un array vacío [], eliminas todos los personajes del capítulo.
+  @Put(':id/characters')
+  setCharacters(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('characterIds', new ParseArrayPipe({ items: String })) characterIds: string[],
+  ) {
+    return this.chaptersService.setCharacters(id, characterIds);
   }
 }
