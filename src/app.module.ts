@@ -11,6 +11,12 @@ import { NovelsModule } from './novels/novels.module';
 import { VolumesModule } from './volumes/volumes.module';
 import { ChaptersModule } from './chapters/chapters.module';
 import { CharactersModule } from './characters/characters.module';
+import { CharacterRelationshipsModule } from './character-relationships/character-relationships.module';
+import { WorldRulesModule } from './world-rules/world-rules.module';
+import { LocationsModule } from './locations/locations.module';
+import { TimelineEventsModule } from './timeline-events/timeline-events.module';
+import { ChatSessionsModule } from './chat-sessions/chat-sessions.module';
+import { MessagesModule } from './messages/messages.module';
 
 @Module({
   imports: [
@@ -70,6 +76,18 @@ import { CharactersModule } from './characters/characters.module';
     ChaptersModule,
 
     CharactersModule,
+
+    CharacterRelationshipsModule,
+
+    WorldRulesModule,
+
+    LocationsModule,
+
+    TimelineEventsModule,
+
+    ChatSessionsModule,
+
+    MessagesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

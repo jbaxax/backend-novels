@@ -31,7 +31,7 @@ export class Character {
   @Column({ type: 'enum', enum: CharacterRole })
   role: CharacterRole;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })
   age: number | null;
 
   // [MENTOR]: Estos campos son todos text nullable porque son descriptivos y opcionales.
