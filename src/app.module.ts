@@ -17,6 +17,7 @@ import { LocationsModule } from './locations/locations.module';
 import { TimelineEventsModule } from './timeline-events/timeline-events.module';
 import { ChatSessionsModule } from './chat-sessions/chat-sessions.module';
 import { MessagesModule } from './messages/messages.module';
+import { GenerationModule } from './generation/generation.module';
 
 @Module({
   imports: [
@@ -88,6 +89,8 @@ import { MessagesModule } from './messages/messages.module';
     ChatSessionsModule,
 
     MessagesModule,
+
+    GenerationModule,
   ],
   controllers: [AppController],
   providers: [AppService],
