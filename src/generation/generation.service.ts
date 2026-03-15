@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
 import { ChatSession } from '../chat-sessions/entities/chat-session.entity';
 import { Chapter } from '../chapters/entities/chapter.entity';
 import { Message } from '../messages/entities/message.entity';
@@ -10,19 +11,19 @@ import { WorldRule } from '../world-rules/entities/world-rule.entity';
 import { Novel } from '../novels/entities/novel.entity';
 import { MessageRole } from '../messages/enums/message-role.enum';
 
-// [MENTOR]: Este servicio es el corazón de la aplicación.
-// Orquesta 4 cosas:
-//   1. Traer el contexto relevante de la BD (capítulo, personajes, reglas, historial)
-//   2. Construir el prompt del sistema para darle personalidad a la IA
-//   3. Llamar a la API de Gemini con ese contexto
-//   4. Guardar la conversación en la BD para que sea persistente
+// [MENTOR]: Este servicio soporta dos proveedores de IA: Gemini y Ollama (local).
+// El proveedor activo se controla con AI_PROVIDER en el .env:
+//   AI_PROVIDER=gemini  → usa la API de Google
+//   AI_PROVIDER=ollama  → usa el modelo local instalado con Ollama
 //
-// Separar esto en su propio módulo es importante porque esta lógica
-// no pertenece ni a chat-sessions ni a messages — es una operación
-// que cruza múltiples dominios.
+// ¿Por qué esta arquitectura? Porque la lógica de negocio (cargar contexto,
+// guardar mensajes) es idéntica para ambos. Solo cambia la llamada a la IA.
+// Si mañana quieres agregar OpenAI, solo agregas un caso más en callAI().
 @Injectable()
 export class GenerationService {
   private readonly gemini: GoogleGenerativeAI;
+  private readonly ollama: OpenAI;
+  private readonly provider: string;
 
   constructor(
     private readonly configService: ConfigService,
@@ -37,25 +38,31 @@ export class GenerationService {
     @InjectRepository(Novel)
     private readonly novelRepository: Repository<Novel>,
   ) {
-    // [MENTOR]: Inicializamos el cliente de Gemini una sola vez en el constructor.
-    // Al inyectarlo como servicio singleton, NestJS garantiza que esto
-    // solo se ejecuta una vez durante toda la vida de la aplicación.
-    this.gemini = new GoogleGenerativeAI(
-      this.configService.getOrThrow<string>('GEMINI_API_KEY'),
-    );
+    this.provider = this.configService.get<string>('AI_PROVIDER') ?? 'gemini';
+
+    if (this.provider === 'gemini') {
+      this.gemini = new GoogleGenerativeAI(
+        this.configService.getOrThrow<string>('GEMINI_API_KEY'),
+      );
+    }
+
+    // [MENTOR]: Ollama expone una API compatible con OpenAI en localhost:11434.
+    // Usamos el paquete 'openai' apuntando a esa URL local — no necesitamos
+    // instalar ningún paquete extra específico de Ollama.
+    if (this.provider === 'ollama') {
+      this.ollama = new OpenAI({
+        baseURL: this.configService.get<string>('OLLAMA_URL') ?? 'http://localhost:11434/v1',
+        apiKey: 'ollama', // Ollama no requiere API key real, pero el cliente la exige
+      });
+    }
   }
 
   async generate(sessionId: string, prompt: string): Promise<string> {
-    // PASO 1: Cargar la sesión y verificar que existe
     const session = await this.sessionRepository.findOneBy({ id: sessionId });
     if (!session) {
       throw new NotFoundException(`ChatSession with id ${sessionId} not found`);
     }
 
-    // PASO 2: Cargar el capítulo con sus personajes y volumen
-    // [MENTOR]: Cargamos las relaciones que necesitamos de una sola query.
-    // characters nos da los personajes del capítulo.
-    // volume nos da el volumeId para luego obtener la novelId.
     const chapter = await this.chapterRepository.findOne({
       where: { id: session.chapterId },
       relations: { characters: true, volume: true },
@@ -64,7 +71,6 @@ export class GenerationService {
       throw new NotFoundException(`Chapter with id ${session.chapterId} not found`);
     }
 
-    // PASO 3: Cargar la novela para tener título y descripción
     const novel = await this.novelRepository.findOneBy({
       id: chapter.volume.novelId,
     });
@@ -72,47 +78,21 @@ export class GenerationService {
       throw new NotFoundException(`Novel with id ${chapter.volume.novelId} not found`);
     }
 
-    // PASO 4: Cargar las reglas del mundo de esta novela
     const worldRules = await this.worldRuleRepository.findBy({
       novelId: chapter.volume.novelId,
     });
 
-    // PASO 5: Cargar el historial de mensajes de esta sesión en orden cronológico
-    // [MENTOR]: ASC es crítico — Gemini necesita el historial en orden
-    // [user, model, user, model, ...] para entender el contexto de la conversación.
     const previousMessages = await this.messageRepository.find({
       where: { sessionId },
       order: { created_at: 'ASC' },
     });
 
-    // PASO 6: Construir el prompt del sistema
-    // [MENTOR]: El system prompt es la "personalidad" y el contexto base de la IA.
-    // Todo lo que ponemos aquí estará disponible en TODOS los mensajes de la sesión.
-    // Es la diferencia entre un asistente genérico y uno que conoce tu novela.
     const systemPrompt = this.buildSystemPrompt(novel, chapter, worldRules);
 
-    // PASO 7: Convertir el historial al formato que espera Gemini
-    // [MENTOR]: Gemini usa 'user' y 'model' como roles (no 'assistant' como Claude/OpenAI).
-    // Por eso mapeamos MessageRole.ASSISTANT → 'model'.
-    const history = previousMessages.map((msg) => ({
-      role: msg.role === MessageRole.USER ? 'user' : 'model',
-      parts: [{ text: msg.content }],
-    }));
+    // [MENTOR]: Delegamos la llamada al proveedor correcto según AI_PROVIDER.
+    // El resto del método (guardar mensajes, retornar) es igual para ambos.
+    const responseText = await this.callAI(systemPrompt, previousMessages, prompt);
 
-    // PASO 8: Llamar a la API de Gemini
-    const model = this.gemini.getGenerativeModel({
-      model: 'gemini-2.5-flash-lite',
-      systemInstruction: systemPrompt,
-    });
-
-    const chat = model.startChat({ history });
-    const result = await chat.sendMessage(prompt);
-    const responseText = result.response.text();
-
-    // PASO 9: Guardar ambos mensajes en la BD
-    // [MENTOR]: Guardamos SIEMPRE los dos mensajes juntos — el del usuario y el de la IA.
-    // Si solo guardáramos el de la IA, perderíamos el historial de lo que pidió el usuario,
-    // y la próxima vez que el autor abra el chat no entendería por qué la IA respondió eso.
     await this.messageRepository.save([
       this.messageRepository.create({
         sessionId,
@@ -129,8 +109,50 @@ export class GenerationService {
     return responseText;
   }
 
-  // [MENTOR]: Separamos la construcción del prompt en su propio método privado
-  // para que generate() sea fácil de leer. Cada método hace UNA sola cosa.
+  private async callAI(
+    systemPrompt: string,
+    previousMessages: Message[],
+    prompt: string,
+  ): Promise<string> {
+    if (this.provider === 'ollama') {
+      // [MENTOR]: Ollama (vía API compatible con OpenAI) espera el historial
+      // como un array de mensajes con role 'user' | 'assistant'.
+      // El system prompt va como primer mensaje con role 'system'.
+      const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+        { role: 'system', content: systemPrompt },
+        ...previousMessages.map((msg) => ({
+          role: msg.role === MessageRole.USER ? ('user' as const) : ('assistant' as const),
+          content: msg.content,
+        })),
+        { role: 'user', content: prompt },
+      ];
+
+      const response = await this.ollama.chat.completions.create({
+        model: this.configService.get<string>('OLLAMA_MODEL') ?? 'mistral',
+        messages,
+      });
+
+      return response.choices[0].message.content ?? '';
+    }
+
+    // Gemini (default)
+    // [MENTOR]: Gemini usa 'user' y 'model' como roles — diferente a OpenAI.
+    // El system prompt se pasa por separado en systemInstruction, no en el historial.
+    const history = previousMessages.map((msg) => ({
+      role: msg.role === MessageRole.USER ? 'user' : 'model',
+      parts: [{ text: msg.content }],
+    }));
+
+    const model = this.gemini.getGenerativeModel({
+      model: this.configService.get<string>('GEMINI_MODEL') ?? 'gemini-2.5-flash-lite',
+      systemInstruction: systemPrompt,
+    });
+
+    const chat = model.startChat({ history });
+    const result = await chat.sendMessage(prompt);
+    return result.response.text();
+  }
+
   private buildSystemPrompt(novel: Novel, chapter: Chapter, worldRules: WorldRule[]): string {
     const charactersText = chapter.characters
       .map(
