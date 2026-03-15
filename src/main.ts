@@ -5,6 +5,12 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  app.enableCors({
+    origin: 'http://localhost:3001',
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
+    credentials: true,
+  });
+
   // [MENTOR]: ValidationPipe es el que activa las validaciones de class-validator en los DTOs.
   // Sin esta línea, los decoradores @IsString(), @IsNotEmpty(), etc. no hacen nada —
   // están declarados pero nadie los ejecuta.

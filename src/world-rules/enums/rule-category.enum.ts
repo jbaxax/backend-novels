@@ -6,4 +6,5 @@ export enum RuleCategory {
   SOCIAL = 'social',
   GEOGRAPHY = 'geography',
   BIOLOGY = 'biology',
+  ADULT = 'adult',
 }
