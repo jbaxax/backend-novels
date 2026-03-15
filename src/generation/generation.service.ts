@@ -23,6 +23,7 @@ import { MessageRole } from '../messages/enums/message-role.enum';
 export class GenerationService {
   private readonly gemini: GoogleGenerativeAI;
   private readonly ollama: OpenAI;
+  private readonly groq: OpenAI;
   private readonly provider: string;
 
   constructor(
@@ -52,7 +53,17 @@ export class GenerationService {
     if (this.provider === 'ollama') {
       this.ollama = new OpenAI({
         baseURL: this.configService.get<string>('OLLAMA_URL') ?? 'http://localhost:11434/v1',
-        apiKey: 'ollama', // Ollama no requiere API key real, pero el cliente la exige
+        apiKey: 'ollama',
+      });
+    }
+
+    // [MENTOR]: Groq también expone una API compatible con OpenAI.
+    // La única diferencia con Ollama es que es remota (nube) y necesita API key real.
+    // Usamos el mismo cliente OpenAI apuntando a la URL de Groq.
+    if (this.provider === 'groq') {
+      this.groq = new OpenAI({
+        baseURL: 'https://api.groq.com/openai/v1',
+        apiKey: this.configService.getOrThrow<string>('GROQ_API_KEY'),
       });
     }
   }
@@ -114,10 +125,15 @@ export class GenerationService {
     previousMessages: Message[],
     prompt: string,
   ): Promise<string> {
-    if (this.provider === 'ollama') {
-      // [MENTOR]: Ollama (vía API compatible con OpenAI) espera el historial
-      // como un array de mensajes con role 'user' | 'assistant'.
-      // El system prompt va como primer mensaje con role 'system'.
+    // [MENTOR]: Ollama y Groq usan exactamente el mismo formato de mensajes
+    // porque ambos son compatibles con la API de OpenAI. La única diferencia
+    // es el cliente (this.ollama vs this.groq) y el modelo.
+    if (this.provider === 'ollama' || this.provider === 'groq') {
+      const client = this.provider === 'groq' ? this.groq : this.ollama;
+      const model = this.provider === 'groq'
+        ? (this.configService.get<string>('GROQ_MODEL') ?? 'mistral-saba-24b')
+        : (this.configService.get<string>('OLLAMA_MODEL') ?? 'mistral');
+
       const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
         { role: 'system', content: systemPrompt },
         ...previousMessages.map((msg) => ({
@@ -127,11 +143,7 @@ export class GenerationService {
         { role: 'user', content: prompt },
       ];
 
-      const response = await this.ollama.chat.completions.create({
-        model: this.configService.get<string>('OLLAMA_MODEL') ?? 'mistral',
-        messages,
-      });
-
+      const response = await client.chat.completions.create({ model, messages });
       return response.choices[0].message.content ?? '';
     }
 
